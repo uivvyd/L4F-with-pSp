@@ -466,18 +466,18 @@ class Generator(nn.Module):
 
     def get_latent(self, input):
         return self.style(input)
-
+# updated forward of StyleGAN2 Generator for Alpha model
     def forward(
-            self,
-            styles,
-            return_latents=False,
-            return_features=False,
-            inject_index=None,
-            truncation=1,
-            truncation_latent=None,
-            input_is_latent=False,
-            noise=None,
-            randomize_noise=True,
+        self,
+        styles,
+        return_latents=False,
+        inject_index=None,
+        truncation=1,
+        truncation_latent=None,
+        input_is_latent=False,
+        noise=None,
+        randomize_noise=True,
+        back = False,
     ):
         if not input_is_latent:
             styles = [self.style(s) for s in styles]
@@ -487,7 +487,7 @@ class Generator(nn.Module):
                 noise = [None] * self.num_layers
             else:
                 noise = [
-                    getattr(self.noises, f'noise_{i}') for i in range(self.num_layers)
+                    getattr(self.noises, f"noise_{i}") for i in range(self.num_layers)
                 ]
 
         if truncation < 1:
@@ -505,29 +505,46 @@ class Generator(nn.Module):
 
             if styles[0].ndim < 3:
                 latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
+
             else:
                 latent = styles[0]
 
         else:
             if inject_index is None:
                 inject_index = random.randint(1, self.n_latent - 1)
+            latent = styles[0].unsqueeze(1).repeat(1, 18, 1)
 
-            latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
-            latent2 = styles[1].unsqueeze(1).repeat(1, self.n_latent - inject_index, 1)
-
-            latent = torch.cat([latent, latent2], 1)
-
-        out = self.input(latent)
-        out = self.conv1(out, latent[:, 0], noise=noise[0])
+        if back and self.size == 512:
+            out = self.input(latent)  * 0 
+            out = self.conv1(out, latent[:, 0], noise=noise[0]) 
+        elif back and self.size != 512:
+            out = self.input(latent) 
+            out = self.conv1(out, latent[:, 0], noise=noise[0]) * 0 
+        else : 
+            out = self.input(latent)
+            out = self.conv1(out, latent[:, 0], noise=noise[0])
+            
+        output_lis = []
 
         skip = self.to_rgb1(out, latent[:, 1])
 
         i = 1
         for conv1, conv2, noise1, noise2, to_rgb in zip(
-                self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
+            self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
         ):
+
             out = conv1(out, latent[:, i], noise=noise1)
+
+            if i >= self.res_idx[self.size] :
+            
+                output_lis.append(out)
+
             out = conv2(out, latent[:, i + 1], noise=noise2)
+
+            if i >= self.res_idx[self.size] :
+
+                output_lis.append(out)
+
             skip = to_rgb(out, latent[:, i + 2], skip)
 
             i += 2
@@ -535,11 +552,9 @@ class Generator(nn.Module):
         image = skip
 
         if return_latents:
-            return image, latent
-        elif return_features:
-            return image, out
-        else:
-            return image, None
+            return image, output_lis, latent
+        else:  
+            return image, output_lis
 
 
 class ConvLayer(nn.Sequential):
@@ -671,3 +686,227 @@ class Discriminator(nn.Module):
         out = self.final_linear(out)
 
         return out
+
+class MyConv2d(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        upsample=False,
+        downsample=False,
+        blur_kernel=[1, 3, 3, 1],
+    ):
+        super().__init__()
+
+        self.eps = 1e-8
+        self.kernel_size = kernel_size
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+        self.upsample = upsample
+        self.downsample = downsample
+
+        if upsample:
+            factor = 2
+            p = (len(blur_kernel) - factor) - (kernel_size - 1)
+            pad0 = (p + 1) // 2 + factor - 1
+            pad1 = p // 2 + 1
+
+            self.blur = Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
+
+        if downsample:
+            factor = 2
+            p = (len(blur_kernel) - factor) + (kernel_size - 1)
+            pad0 = (p + 1) // 2
+            pad1 = p // 2
+
+            self.blur = Blur(blur_kernel, pad=(pad0, pad1))
+
+        fan_in = in_channel * kernel_size ** 2
+        self.scale = 1 / math.sqrt(fan_in)
+        self.padding = kernel_size // 2
+
+        self.weight = nn.Parameter(
+            torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
+        )
+
+      
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, "
+            f"upsample={self.upsample}, downsample={self.downsample})"
+        )
+
+    def forward(self, input):
+        batch, in_channel, height, width = input.shape
+
+     
+
+        weight = self.scale * self.weight
+        
+
+        weight = weight.view( self.out_channel, in_channel, self.kernel_size, self.kernel_size
+        )
+
+        if self.upsample:
+            input = input.view(batch, in_channel, height, width)
+            weight = weight.view(
+                1, self.out_channel, in_channel, self.kernel_size, self.kernel_size
+            )
+            weight = weight.transpose(1, 2).reshape(
+                 in_channel, self.out_channel, self.kernel_size, self.kernel_size
+            )
+            out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=1)
+         
+            _, _, height, width = out.shape
+            out = out.view(batch, self.out_channel, height, width)
+            out = self.blur(out)
+
+        elif self.downsample:
+            input = self.blur(input)
+            _, _, height, width = input.shape
+            input = input.view(1, batch * in_channel, height, width)
+            out = F.conv2d(input, weight, padding=0, stride=2, groups=batch)
+            _, _, height, width = out.shape
+            out = out.view(batch, self.out_channel, height, width)
+
+        else:
+            input = input.view(batch,  in_channel, height, width)
+            out = F.conv2d(input, weight, padding=self.padding, groups=1)
+            _, _, height, width = out.shape
+            out = out.view(batch, self.out_channel, height, width)
+
+        return out
+
+# alpha model from L4F
+class bg_extractor_repro(nn.Module):
+    def __init__(self,  image_size = 1024, min_res = 32):
+        super().__init__()
+
+        self.image_size = image_size
+        self.min_res = min_res
+        self.output_channels = 3
+        assert self.image_size == 1024 or 512 or 256 , 'Resolution error'
+
+        if self.image_size == 1024:
+             self.tensor_resolutions = [ 512, 512, 512, 512, 256, 256,  128, 128, 64, 64, 32, 32]
+
+        elif self.image_size == 512:
+            self.tensor_resolutions = [ 512,  512,  512, 512,  512,  512,  256, 256, 128, 128, 64, 64 ]
+
+        else:
+             self.tensor_resolutions = [ 512, 512,  512,  512, 512, 512,  512,  512,  256, 256, 128, 128]
+
+        self.image_resolutions = [ 16, 32, 64, 128, 256, 512, 1024]
+        
+
+        self.upsample_fns = [nn.Upsample(size=(res, res), mode='bicubic', align_corners=True) for res in self.image_resolutions if res >= min_res*2]
+        self.upsample_fns = nn.ModuleList(self.upsample_fns)
+    
+        self.conv1 = nn.Conv2d(self.tensor_resolutions[0], self.output_channels, 1, stride=1)
+        self.conv2 = nn.Conv2d(self.tensor_resolutions[1], self.output_channels, 1, stride=1)
+        self.conv3 = nn.Conv2d(self.tensor_resolutions[2], self.output_channels, 1, stride=1)
+        self.conv4 = nn.Conv2d(self.tensor_resolutions[3], self.output_channels, 1, stride=1)
+        self.conv5 = nn.Conv2d(self.tensor_resolutions[4], self.output_channels, 1, stride=1)
+        self.conv6 = nn.Conv2d(self.tensor_resolutions[5], self.output_channels, 1, stride=1)
+        self.conv_next= nn.Conv2d(self.output_channels*4, self.output_channels*2, 1, stride=1)
+        self.conv_next2 = nn.Conv2d(self.output_channels*4, self.output_channels*2, 1, stride=1)
+        self.conv_next3 = nn.Conv2d(self.output_channels*4, self.output_channels*2, 1, stride=1)
+        self.conv_next4 = nn.Conv2d(self.output_channels*4, self.output_channels*2, 1, stride=1)
+        self.conv7 = nn.Conv2d(self.tensor_resolutions[6], self.output_channels, 1, stride=1)
+        self.conv8 = nn.Conv2d(self.tensor_resolutions[7], self.output_channels, 1, stride=1)
+        self.conv9 = nn.Conv2d(self.tensor_resolutions[8], self.output_channels, 1, stride=1)
+        self.conv10 = nn.Conv2d(self.tensor_resolutions[9], self.output_channels, 1, stride=1)
+        self.conv11 = nn.Conv2d(self.tensor_resolutions[10], self.output_channels, 1, stride=1)
+        self.conv12 = nn.Conv2d(self.tensor_resolutions[11], self.output_channels, 1, stride=1)
+        self.conv_n = nn.Conv2d(self.output_channels*2, 1, 1, stride=1)
+ 
+
+        self.sigmoid =  nn.Sigmoid()
+        self.leakr = nn.LeakyReLU(0.2)
+
+    def forward(self, input):
+
+        out1 = self.upsample_fns[0](torch.cat([self.conv1(input[0]), self.conv2(input[1])], axis = 1))
+        out2 = (torch.cat([self.conv3(input[2]), self.conv4(input[3])], axis = 1))
+
+        out3 = self.upsample_fns[1](self.leakr(self.conv_next(torch.cat([out2, out1], axis = 1))))
+        out4 = (torch.cat([ self.conv5(input[4]), self.conv6(input[5])], axis=1))
+
+        out5 = self.upsample_fns[2](self.leakr(self.conv_next2(torch.cat([ out4, out3], axis=1))))
+        out6 = (torch.cat([self.conv7(input[6]), self.conv8(input[7])], axis=1))
+
+        out7 = self.upsample_fns[3](self.leakr(self.conv_next3(torch.cat([out6, out5], axis=1))))
+        out8 = (torch.cat([self.conv9(input[8]), self.conv10(input[9])], axis=1))
+
+        out9 = self.upsample_fns[4](self.leakr(self.conv_next4(torch.cat([out8,out7], axis=1))))
+        out10 = (torch.cat([self.conv11(input[10]), self.conv12(input[11])], axis=1))
+
+        out_final =  self.sigmoid(self.conv_n( out9 + out10))
+
+
+        return out_final
+
+
+class bg_extractor(nn.Module):
+
+    def __init__(self, image_size = 1024, min_res = 32):
+        super().__init__()
+        self.kernel_size = 1
+        self.image_size = image_size
+        self.min_res = min_res
+        self.image_resolutions = [ 16, 32, 64, 128, 256, 512, 1024]
+
+        assert self.image_size == 1024 or 512 or 256 , 'Resolution error'
+
+        if self.image_size == 1024:
+            self.tensor_resolutions = [ 512, 512, 256,  128,  64, 32]
+
+        elif self.image_size == 512:
+            self.tensor_resolutions = [ 512,  512,  512,  256,  128,  64]
+
+        else:
+            self.tensor_resolutions = [ 512, 512,  512,  512,  256,  128]
+
+        self.upsample_fns = [nn.Upsample(size=(res, res), mode='bicubic', align_corners=True) for res in self.image_resolutions if res >= min_res*2]
+        self.upsample_fns = nn.ModuleList(self.upsample_fns)
+        
+        self.conv_fns0 = [nn.Conv2d(res, 3, 1, stride=1) for res in self.tensor_resolutions]
+        self.conv_fns0 = nn.ModuleList(self.conv_fns0)
+
+        self.conv_fns1 = [nn.Conv2d(res, 3, 1, stride=1) for res in self.tensor_resolutions]
+        self.conv_fns1 = nn.ModuleList(self.conv_fns1)
+
+        self.conv_merge_fns = [nn.Conv2d(12, 6, self.kernel_size, stride=1) for res in range(4)]
+        self.conv_merge_fns = nn.ModuleList(self.conv_merge_fns)
+
+        
+
+        self.conv_n = nn.Conv2d(6, 1, 1, stride=1)
+        self.sigmoid =  nn.Sigmoid()
+        self.leakr = nn.LeakyReLU(0.2)
+      
+
+    def forward(self, input):
+
+        
+        out_0 = self.upsample_fns[0](torch.cat([self.conv_fns0[0](input[0]), self.conv_fns1[0](input[1])], axis = 1))
+        count = 2
+        for conv1, conv2, conv_merge, res in zip(self.conv_fns0[1:], self.conv_fns1[1:], self.conv_merge_fns,  self.upsample_fns[1:]):
+              
+     
+                out_1 = (torch.cat([conv1(input[count ]), conv2(input[count + 1])], axis = 1))
+               
+                out_0 = res(self.leakr(conv_merge(torch.cat([out_1, out_0], axis = 1))))
+                count += 2
+
+        out_1 = (torch.cat([self.conv_fns0[-1](input[count ]), self.conv_fns1[-1](input[count + 1])], axis = 1))
+           
+
+            
+
+        out_final = self.sigmoid(self.conv_n( out_1 + out_0))
+
+
+        return out_final
