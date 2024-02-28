@@ -399,6 +399,7 @@ class Generator(nn.Module):
         }
 
         self.input = ConstantInput(self.channels[4])
+        self.res_idx = {1024: 5, 512 : 3 , 256 : 1}
         self.conv1 = StyledConv(
             self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel
         )
