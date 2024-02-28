@@ -8,6 +8,7 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader
 import sys
+from torchvision import utils
 
 sys.path.append(".")
 sys.path.append("..")
@@ -36,15 +37,24 @@ def run():
                                         'downsampling_{}'.format(test_opts.resize_factors))
         out_path_coupled = os.path.join(test_opts.exp_dir, 'inference_coupled',
                                         'downsampling_{}'.format(test_opts.resize_factors))
+        out_path_masks = os.path.join(test_opts.exp_dir, 'inference_masks', 
+                                      'downsampling_{}'.format(test_opts.resize_factors))
+        out_path_new_bg = os.path.join(test_opts.exp_dir, 'new_bg',
+                                       'downsampling_{}'.format(test_opts.resize_factors))
+        out_path_gen_bg = os.path.join(test_opts.exp_dir, 'generated_bg',
+                                       'downsampling_{}'.format(test_opts.resize_factors))
     else:
         out_path_results = os.path.join(test_opts.exp_dir, 'inference_results')
         out_path_coupled = os.path.join(test_opts.exp_dir, 'inference_coupled')
         out_path_masks = os.path.join(test_opts.exp_dir, 'inference_masks')
         out_path_new_bg = os.path.join(test_opts.exp_dir, 'new_bg')
+        out_path_gen_bg = os.path.join(test_opts.exp_dir, 'generated_bg')
 
     os.makedirs(out_path_results, exist_ok=True)
+    os.makedirs(out_path_coupled, exist_ok=True)
     os.makedirs(out_path_masks, exist_ok=True)
     os.makedirs(out_path_new_bg, exist_ok=True)
+    os.makedirs(out_path_gen_bg, exist_ok=True)
     
 
     # update test options with options used during training
@@ -107,14 +117,17 @@ def run():
             alpha_mask = bg_extractor_(_)
             hard_mask = (alpha_mask > test_opts.th).float()
             
-            image_new_batch = result_batch * alpha_mask + (1 - alpha_mask) * sample_bg
+            image_new_bg = result_batch * alpha_mask + (1 - alpha_mask) * sample_bg
+            image_new_bg_hard = result_batch * hard_mask + (1 - hard_mask) * sample_bg
+
             toc = time.time()
             global_time.append(toc - tic)
 
         for i in range(opts.test_batch_size):
             result = tensor2im(result_batch[i])
-            mask_img = tensor2im(hard_mask[i], gs=True)
-            new_bg = tensor2im(image_new_batch[i])
+            new_bg = tensor2im(image_new_bg[i])
+            hard_bg = tensor2im(image_new_bg_hard[i])
+            gen_bg = tensor2im(sample_bg[i])
             im_path = dataset.paths[global_i]
 
             if opts.couple_outputs or global_i % 100 == 0:
@@ -130,18 +143,26 @@ def run():
                     # otherwise, save the original and output
                     res = np.concatenate([np.array(input_im.resize(resize_amount)),
                                           np.array(result.resize(resize_amount)),
-                                          np.array(mask_img.resize(resize_amount)),
-                                          np.array(new_bg.resize(resize_amount))], axis=1)
+                                          np.array(new_bg.resize(resize_amount)),
+                                          np.array(hard_bg.resize(resize_amount))], axis=1)
                 Image.fromarray(res).save(os.path.join(out_path_coupled, os.path.basename(im_path)))
 
             im_save_path = os.path.join(out_path_results, os.path.basename(im_path))
             Image.fromarray(np.array(result)).save(im_save_path)
-
-            im_save_path = os.path.join(out_path_masks, os.path.basename(im_path))
-            Image.fromarray(np.array(mask_img)).save(im_save_path)
-
+        
             im_save_path = os.path.join(out_path_new_bg, os.path.basename(im_path))
             Image.fromarray(np.array(new_bg)).save(im_save_path)
+
+            im_save_path = os.path.join(out_path_masks, os.path.basename(im_path))
+            utils.save_image(
+                        hard_mask[i],
+                        im_save_path,
+                        nrow=int(test_opts.test_batch_size ** 0.5),
+                        normalize=False, 
+                    )
+
+            im_save_path = os.path.join(out_path_gen_bg, os.path.basename(im_path))
+            Image.fromarray(np.array(gen_bg)).save(im_save_path)
 
             global_i += 1
 
