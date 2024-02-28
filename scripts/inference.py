@@ -68,7 +68,7 @@ def run():
     bg_extractor_.eval()
 
     # bg generator
-    bg_generator = Generator(1024, 512, 8, channel_multiplier=test_opts.channel_multiplier).to(device)
+    bg_generator = Generator(1024, 512, 8, channel_multiplier=2).to(device)
     bg_generator.load_state_dict(get_keys(ckpt, 'decoder'), strict=True)
     bg_generator.eval()
 
