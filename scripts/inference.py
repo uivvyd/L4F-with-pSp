@@ -11,14 +11,13 @@ import sys
 
 sys.path.append(".")
 sys.path.append("..")
-sys.path.append('./models/stylegan2/')
 
 from configs import data_configs
 from datasets.inference_dataset import InferenceDataset
 from utils.common import tensor2im, log_input_image
 from options.test_options import TestOptions
 from models.psp import pSp
-from stylegan2 import bg_extractor_repro, Generator
+from models.stylegan2.model import bg_extractor_repro, Generator
 
 def get_keys(d, name):
 	if 'state_dict' in d:
@@ -44,7 +43,9 @@ def run():
         out_path_new_bg = os.path.join(test_opts.exp_dir, 'new_bg')
 
     os.makedirs(out_path_results, exist_ok=True)
-    os.makedirs(out_path_coupled, exist_ok=True)
+    os.makedirs(out_path_masks, exist_ok=True)
+    os.makedirs(out_path_new_bg, exist_ok=True)
+    
 
     # update test options with options used during training
     ckpt = torch.load(test_opts.checkpoint_path, map_location='cpu')
