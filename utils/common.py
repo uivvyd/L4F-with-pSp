@@ -14,13 +14,18 @@ def log_input_image(x, opts):
 		return tensor2map(x)
 
 
-def tensor2im(var):
+def tensor2im(var, gs=False):
 	var = var.cpu().detach().transpose(0, 2).transpose(0, 1).numpy()
+	if gs:
+		var = np.squeeze(var, axis=2)
 	var = ((var + 1) / 2)
 	var[var < 0] = 0
 	var[var > 1] = 1
 	var = var * 255
+	if gs:
+		return Image.fromarray(var.astype('bool'))
 	return Image.fromarray(var.astype('uint8'))
+		
 
 
 def tensor2map(var):
