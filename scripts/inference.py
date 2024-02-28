@@ -11,12 +11,20 @@ import sys
 
 sys.path.append(".")
 sys.path.append("..")
+sys.path.append('./models/stylegan2/')
 
 from configs import data_configs
 from datasets.inference_dataset import InferenceDataset
 from utils.common import tensor2im, log_input_image
 from options.test_options import TestOptions
 from models.psp import pSp
+from stylegan2 import bg_extractor_repro, Generator
+
+def get_keys(d, name):
+	if 'state_dict' in d:
+		d = d['state_dict']
+	d_filt = {k[len(name) + 1:]: v for k, v in d.items() if k[:len(name)] == name}
+	return d_filt
 
 
 def run():
@@ -32,6 +40,8 @@ def run():
     else:
         out_path_results = os.path.join(test_opts.exp_dir, 'inference_results')
         out_path_coupled = os.path.join(test_opts.exp_dir, 'inference_coupled')
+        out_path_masks = os.path.join(test_opts.exp_dir, 'inference_masks')
+        out_path_new_bg = os.path.join(test_opts.exp_dir, 'new_bg')
 
     os.makedirs(out_path_results, exist_ok=True)
     os.makedirs(out_path_coupled, exist_ok=True)
@@ -49,6 +59,21 @@ def run():
     net = pSp(opts)
     net.eval()
     net.cuda()
+
+    # alpha model
+    device = 'cuda'
+    bg_extractor_ = bg_extractor_repro(image_size = 1024, min_res = 32).cuda()
+    ckpt_ = torch.load(test_opts.ckpt_bg_extractor, map_location=lambda storage, loc: storage)
+    bg_extractor_.load_state_dict(ckpt_["bg_extractor_ema"])
+    bg_extractor_.eval()
+
+    # bg generator
+    bg_generator = Generator(1024, 512, 8, channel_multiplier=test_opts.channel_multiplier).to(device)
+    bg_generator.load_state_dict(get_keys(ckpt, 'decoder'), strict=True)
+    bg_generator.eval()
+
+    with torch.no_grad():
+        mean_latent = bg_generator.mean_latent(4096)
 
     print('Loading dataset for {}'.format(opts.dataset_type))
     dataset_args = data_configs.DATASETS[opts.dataset_type]
@@ -73,12 +98,22 @@ def run():
         with torch.no_grad():
             input_cuda = input_batch.cuda().float()
             tic = time.time()
-            result_batch = run_on_batch(input_cuda, net, opts)
+            result_batch, _  = net(input_cuda, randomize_noise=False, resize=opts.resize_outputs)
+            
+            sample_z2 = torch.randn(test_opts.batch, 512, device=device)
+            sample_bg, __ = bg_generator([sample_z2], truncation=0.5, truncation_latent=mean_latent, back = True)
+            
+            alpha_mask = bg_extractor_(_)
+            hard_mask = (alpha_mask > test_opts.th).float()
+            
+            image_new_batch = result_batch * alpha_mask + (1 - alpha_mask) * sample_bg
             toc = time.time()
             global_time.append(toc - tic)
 
         for i in range(opts.test_batch_size):
             result = tensor2im(result_batch[i])
+            mask_img = tensor2im(hard_mask[i])
+            new_bg = tensor2im(image_new_batch[i])
             im_path = dataset.paths[global_i]
 
             if opts.couple_outputs or global_i % 100 == 0:
@@ -93,11 +128,19 @@ def run():
                 else:
                     # otherwise, save the original and output
                     res = np.concatenate([np.array(input_im.resize(resize_amount)),
-                                          np.array(result.resize(resize_amount))], axis=1)
+                                          np.array(result.resize(resize_amount)),
+                                          np.array(mask_img.resize(resize_amount)),
+                                          np.array(new_bg.resize(resize_amount))], axis=1)
                 Image.fromarray(res).save(os.path.join(out_path_coupled, os.path.basename(im_path)))
 
             im_save_path = os.path.join(out_path_results, os.path.basename(im_path))
             Image.fromarray(np.array(result)).save(im_save_path)
+
+            im_save_path = os.path.join(out_path_masks, os.path.basename(im_path))
+            Image.fromarray(np.array(mask_img)).save(im_save_path)
+
+            im_save_path = os.path.join(out_path_new_bg, os.path.basename(im_path))
+            Image.fromarray(np.array(new_bg)).save(im_save_path)
 
             global_i += 1
 
