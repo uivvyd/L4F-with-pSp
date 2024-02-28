@@ -555,7 +555,7 @@ class Generator(nn.Module):
         if return_latents:
             return image, output_lis, latent
         else:  
-            return image, output_lis
+            return image, output_lis, None
 
 
 class ConvLayer(nn.Sequential):
