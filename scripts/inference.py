@@ -113,7 +113,7 @@ def run():
 
         for i in range(opts.test_batch_size):
             result = tensor2im(result_batch[i])
-            mask_img = tensor2im(hard_mask[i])
+            mask_img = tensor2im(hard_mask[i], gs=True)
             new_bg = tensor2im(image_new_batch[i])
             im_path = dataset.paths[global_i]
 
