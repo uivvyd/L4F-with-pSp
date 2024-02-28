@@ -91,7 +91,7 @@ class pSp(nn.Module):
 					codes[:, i] = 0
 
 		input_is_latent = not input_code
-		images, result_latent = self.decoder([codes],
+		images, output_lis, result_latent = self.decoder([codes],
 		                                     input_is_latent=input_is_latent,
 		                                     randomize_noise=randomize_noise,
 		                                     return_latents=return_latents)
@@ -100,9 +100,9 @@ class pSp(nn.Module):
 			images = self.face_pool(images)
 
 		if return_latents:
-			return images, result_latent
+			return images, output_lis, result_latent
 		else:
-			return images
+			return images, output_lis
 
 	def set_opts(self, opts):
 		self.opts = opts
