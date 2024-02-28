@@ -101,8 +101,8 @@ def run():
             tic = time.time()
             result_batch, _  = net(input_cuda, randomize_noise=False, resize=opts.resize_outputs)
             
-            sample_z2 = torch.randn(test_opts.batch, 512, device=device)
-            sample_bg, __ = bg_generator([sample_z2], truncation=0.5, truncation_latent=mean_latent, back = True)
+            sample_z2 = torch.randn(test_opts.test_batch_size, 512, device=device)
+            sample_bg, __, ___ = bg_generator([sample_z2], truncation=0.5, truncation_latent=mean_latent, back = True)
             
             alpha_mask = bg_extractor_(_)
             hard_mask = (alpha_mask > test_opts.th).float()
