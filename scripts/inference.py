@@ -134,7 +134,7 @@ def run():
             if opts.couple_outputs or global_i % 100 == 0:
                 input_im = log_input_image(input_batch[i], opts)
                 resize_amount = (256, 256) if opts.resize_outputs else (opts.output_size, opts.output_size)
-		mask_size = (test_opts.mask_size, test_opts.mask_size)
+                mask_size = (test_opts.mask_size, test_opts.mask_size)
                 if opts.resize_factors is not None:
                     # for super resolution, save the original, down-sampled, and output
                     source = Image.open(im_path)
