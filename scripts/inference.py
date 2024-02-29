@@ -9,6 +9,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 import sys
 from torchvision import utils
+from torchvision.transforms import Resize
 
 sys.path.append(".")
 sys.path.append("..")
@@ -133,6 +134,7 @@ def run():
             if opts.couple_outputs or global_i % 100 == 0:
                 input_im = log_input_image(input_batch[i], opts)
                 resize_amount = (256, 256) if opts.resize_outputs else (opts.output_size, opts.output_size)
+		mask_size = (test_opts.mask_size, test_opts.mask_size)
                 if opts.resize_factors is not None:
                     # for super resolution, save the original, down-sampled, and output
                     source = Image.open(im_path)
@@ -155,7 +157,7 @@ def run():
 
             im_save_path = os.path.join(out_path_masks, os.path.basename(im_path))
             utils.save_image(
-                        hard_mask[i],
+                        Resize(mask_size)(hard_mask[i]),
                         im_save_path,
                         nrow=int(test_opts.test_batch_size ** 0.5),
                         normalize=False, 
