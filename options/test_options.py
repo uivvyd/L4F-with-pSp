@@ -21,6 +21,7 @@ class TestOptions:
 		# arguments for L4F
 		self.parser.add_argument("--ckpt_bg_extractor", type=str, default=None, help="path to alpha model checkpoints")
 		self.parser.add_argument("--th", type=float, default=0.9, help="Threshold of the mask")
+		self.parser.add_argument("--mask_size", type=int, default=1024, help="Size of the mask")
 
 		# arguments for style-mixing script
 		self.parser.add_argument('--n_images', type=int, default=None, help='Number of images to output. If None, run on all data')
