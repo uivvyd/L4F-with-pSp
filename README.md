@@ -24,7 +24,8 @@ python scripts/inference.py \
 
 ### Примеры работы
 <p align="center">
-<img src="docs/teaser.png" width="800px"/>
+<img src="docs/L4F_with_pSp_FFHQ.png" width="800px"/>
+<img src="docs/L4F_with_pSp_CelebAMask.png" width="800px"/>
 <br>
-Выполненная StyleGAN инверсия (2 столбец) с помощью pSp энкодера и последующая сегментация с помощью метода Labels4Free.
+Выполненная StyleGAN инверсия (2 столбец) с помощью pSp энкодера и последующая сегментация с помощью метода Labels4Free, датасеты: FFHQ, CelebAMask-HQ
 </p>
